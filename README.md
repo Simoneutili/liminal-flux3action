@@ -1,334 +1,173 @@
 <p align="center">
   <a href="https://javgilavi.github.io/liminal/">
-    <img src="docs/assets/liminal-header.png" alt="Liminal — Imagine, then act. Dual-arm manipulation with FLUX 3 Action." width="100%" />
+    <img src="docs/assets/liminal-header.png" alt="Liminal: dual-arm manipulation with FLUX 3 Action" width="100%" />
   </a>
 </p>
 
-**[Project page](https://javgilavi.github.io/liminal/) · [Live lab](https://javgilavi.github.io/liminal/live.html)**
+<p align="center">
+  <a href="https://javgilavi.github.io/liminal/">Project page</a> ·
+  <a href="https://javgilavi.github.io/liminal/live.html">Live lab</a> ·
+  <a href="https://drive.google.com/file/d/1et5ffQpXLLh4a1qOvociNB1weNlaCGPU/view">Video (2 min)</a> ·
+  <a href="https://drive.google.com/file/d/1tG4ehYkKH0PK-AJg1K_wNPsWDiAQaoM3/view">Slides</a> ·
+  <a href="https://huggingface.co/Oskrt">Models and datasets</a>
+</p>
 
-**Long-horizon, dual-arm collaboration on SO-101 / XLeRobot, using FLUX 3 Action for manipulation.**
+# Liminal
 
-One arm changes or holds something in the scene so the other arm can do what it
-otherwise couldn't. FLUX 3 Action handles the *learned manipulation*: bounded,
-text-prompted skills on one arm. Everything above that is this repo: deciding
-*why* a skill is needed, *when* the other arm is ready, *which conditions must stay
-true*, and *whether the goal really happened*.
+Liminal is an orchestration layer for long-horizon, dual-arm manipulation on top of FLUX 3 Action, a
+vision-language-action (VLA) model. It was built at the ERH Physical AI Hackathon (18 October 2026, track
+"Imagine, Then Act").
 
-## Hackathon results (ERH Physical AI Hackathon, 18 October 2026)
+A VLA is good at short, text-prompted skills on one arm, such as *put the green pen in the green slot*. Real tasks are
+longer and use both arms: one arm opens a box and keeps the lid up while the other places objects inside. Liminal adds
+the layer around the model that decides:
 
-**Team Liminal:** Oscar Devos, Javier Gil, Tomas Leggaet, Simone Utili, Stanislaw Sufin. **[Submission video (2 min)](https://drive.google.com/file/d/1et5ffQpXLLh4a1qOvociNB1weNlaCGPU/view)** · **[Slides (PDF)](https://drive.google.com/file/d/1tG4ehYkKH0PK-AJg1K_wNPsWDiAQaoM3/view)**
-60 s teasers by Javier Gil: [landscape](https://drive.google.com/file/d/1eyPMYofcuqxp0x0iw8-73LB_qJwRpfDJ/view) · [vertical](https://drive.google.com/file/d/1fthnCf_IRkh3jHtY1vPc4GKUaAegtTwA/view)
+- **what** runs next, on **which arm**, and **when** the other arm is ready;
+- **which conditions must stay true** while a skill runs (the lid stays open while the other arm works);
+- **whether a step actually succeeded**, judged from a fresh camera check and never from the skill's own report.
 
-**The full 4-skill chain, one run (12:05), sped up uniformly 5.71x with no cuts** (58 s, then the final frame holds
-2 s; operator console: plan,
-Claude's step checks, head and wrist cameras, FLUX's imagined vs actual frames). Step labels: box = scripted replay,
-not FLUX; green pen and cutter = FLUX 3 Action LoRAs; the green-pen policy also slotted the red pen on its way home.
+Every motor command goes through one safety supervisor with joint limits, step limits, arm ownership and an e-stop.
+FLUX executes the manipulation; Liminal plans, verifies and recovers.
 
-[![Full 4-skill chain on the real Haller, 12:05 run, 5.71x uniform speed-up](media/full_chain_60s_speedup.webp)](https://drive.google.com/file/d/1tK71kTtUIeYPc1cwt6Jqc6ZbzJMnnCIB/view)
+## Results
 
-- **Full 4-skill chain on the real Haller**, planned by Claude with a camera check after every step:
-  **2 of 3 runs finished 4/4** with no human touch during the run (208.6 s and 302.2 s).
-  - **Box:** opened by a **scripted replay of a recorded demo**, not FLUX (at 12:05 it missed twice; Claude replanned and
-    the third replay opened it).
-  - **Green pen:** placed by its **FLUX 3 Action LoRA** (about 55 to 58 s).
-  - **Yellow cutter:** placed by its **FLUX 3 Action LoRA** (at 12:05 on the second attempt, 45.6 s).
-  - **Red pen:** in both 4/4 runs the green-pen policy picked up the red pen and slotted it on its way home, with no
-    human touch. The red-pen step's camera check then found it already in place (2.8 s and 3.8 s), so the red-pen LoRA
-    had nothing left to do. On its own, the red-pen LoRA made 3 of 5 and then 2 of 3 real inserts, plus one HMI insert
-    confirmed by Claude in 33 s.
-  - Demo mode: keep-out zones and stall/load stops were off. Joint limits, 1 deg per tick, a 60 % torque cap and the
-    e-stop stayed on.
-- **Behavior-tree harness on the real robot** (Stanislaw Sufin, Simone Utili): the task-YAML behavior tree drove the
-  Haller through the ws4 safety stack. It skipped the box step when it saw the lid already open, placed the green pen
-  live with its FLUX LoRA, and ran with Claude Opus 5.5 checks. The Opus 5.5 hybrid gate is wired in and was verified
-  in observation mode. See [ws4/HARNESS_BRIDGE.md](ws4/HARNESS_BRIDGE.md).
-- **Live lab and digital twin** (Javier Gil): the [project page](https://javgilavi.github.io/liminal/) and a paired
-  full-screen [live lab](https://javgilavi.github.io/liminal/live.html) that mirrors the real arms' measured joints in
-  a MuJoCo twin of the Haller, also shown inside the orchestrator HMI. See [docs/research-ui.md](docs/research-ui.md).
-- **Per-skill FLUX LoRAs** (rank 32, each skill normalized on its own demos): the red pen went 3/5, then 2/3, real
-  inserts. Stock zero-shot FLUX went 0/16.
-- **Public models (every checkpoint, under `checkpoints/<run>/<step>/{raw,ema}`):**
-  - [Oskrt/flux-3-action-so101-haller-pen-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-pen-lora): red
-    pen. The demo runs `checkpoints/lora_pen84/005000/raw`; the repo root is the RAW 10k adapter.
-  - [Oskrt/flux-3-action-so101-haller-green-pen-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-green-pen-lora):
-    green pen (root = the served RAW 5k).
-  - [Oskrt/flux-3-action-so101-haller-yellow-cutter-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-yellow-cutter-lora):
-    yellow cutter (root = the served augmented RAW 5k).
-  - [Oskrt/flux-3-action-so101-haller-open-box-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-open-box-lora):
-    open box (trained, but not used in the demo; the box step is a scripted replay).
-- **Public datasets** (LeRobot v3, VR teleoperation on the Haller):
-  [open the box](https://huggingface.co/datasets/Oskrt/haller_open_the_box),
-  [green pen](https://huggingface.co/datasets/Oskrt/haller_put_the_green_pen_in_the_green_slot),
-  [yellow cutter](https://huggingface.co/datasets/Oskrt/haller_put_the_yellow_cutter_in_the_yellow_slot),
-  [red pen](https://huggingface.co/datasets/Oskrt/haller_put_the_red_pen_in_its_slot_in_the_cardboard_box),
-  [take the red pen out](https://huggingface.co/datasets/Oskrt/haller_take_the_red_pen_out_of_its_slot).
-- **Where things are:**
-  - [ws4/pitch/README_submission.md](ws4/pitch/README_submission.md): the full write-up and numbers.
-  - [ws4/](ws4/): the FLUX skill pipeline, safety runner and Claude orchestrator.
-  - [ws4/HARNESS_BRIDGE.md](ws4/HARNESS_BRIDGE.md): this behavior-tree harness driving the Haller through the ws4
-    safety stack, with the optional Opus 5.5 gate.
+The robot is a green XLeRobot we call the *Haller*: two SO-101 arms on a torso, a RealSense D455 head camera, a wrist
+camera on each arm and soft fin-ray fingers. The demo task is a four-step chain:
 
-[![Liminal architecture: a deterministic behavior-tree harness coordinates independent left and right FLUX 3 Action policies adapted with task LoRA. A skill registry selects checkpoint bundles; safety checks gate robot commands. Scene and wrist cameras feed Qwen3-VL-4B-Instruct perception, which updates verified world-state predicates for the harness.](docs/assets/liminal-architecture.png)](docs/assets/liminal-architecture.png)
+| Step | Arm | Executed by |
+|---|---|---|
+| Open the box and hold the lid | right | scripted replay of a recorded demo (the FLUX box LoRA did not start reliably from rest) |
+| Put the green pen in the green slot | left | FLUX 3 Action + LoRA |
+| Put the yellow cutter in the yellow slot | left | FLUX 3 Action + LoRA |
+| Put the red pen in its slot | left | FLUX 3 Action + LoRA |
 
-*Configured runtime: FLUX 3 Action + task LoRA on each arm; Qwen3-VL-4B-Instruct for
-perception. The harness, registry and safety checks are deterministic software.
-Full learned dual-arm hardware performance remains unverified.*
+[![Full four-skill chain on the Haller, one run at 5.71x speed with no cuts](media/full_chain_60s_speedup.webp)](https://drive.google.com/file/d/1tK71kTtUIeYPc1cwt6Jqc6ZbzJMnnCIB/view)
 
-<details>
-<summary>Figure details and design references</summary>
+*One complete run, sped up 5.71x with no cuts. The operator console shows the plan, Claude's step checks, the head and
+wrist cameras, and the frames FLUX predicts next to what actually happens.*
 
-The figure shows the main learned-skill path. Local hold/release primitives bypass
-VLA inference; optional task-planning models and the disabled standalone hybrid
-controller are omitted. Each policy receives its arm's joint state and camera
-observations; joint states come from the arm drivers. The embodiment panel uses
-the supplied photograph of our green XLeRobot rig, with its room background removed
-and the composition adapted for the figure. It illustrates the hardware, not a
-recorded successful rollout.
-See [the architecture](docs/architecture.md) for the complete contracts.
+- **Full chain: 2 of 3 runs completed all four steps with no human intervention** (208.6 s and 302.2 s). Claude
+  planned the chain and checked every step on the head camera. When the box replay missed twice, it replanned and the
+  third attempt opened the box. In both successful runs the green-pen policy also slotted the red pen on its way home,
+  so the final check found it already in place.
+- **Fine-tuning made the difference.** On the red-pen insert, the released FLUX checkpoint went 0/16. Our LoRA (rank
+  32, trained on the skill's own teleoperated demos) went 3/5, then 2/3 in a later session.
+- **The behavior-tree harness ran on the real robot** through the same safety stack. It skipped the box step when it
+  saw the lid already open and placed the green pen with its FLUX LoRA, with Claude Opus 5.5 verifying each step.
+  The Opus 5.5 hybrid gate ran in observation mode.
 
-Figure generated and refined with the built-in image-generation tool using our
-robot photograph; [generation and refinement prompts](docs/assets/architecture-rounded-prompt.txt).
-Visual references: [OpenVLA](https://openvla.github.io/) and its
-[GitHub repo](https://github.com/openvla/openvla),
-[Diffusion Policy](https://diffusion-policy.cs.columbia.edu/) and its
-[GitHub repo](https://github.com/real-stanford/diffusion_policy),
-[π₀](https://www.pi.website/blog/pi0), and
-[Nerfies](https://nerfies.github.io/).
-These informed the layout and visual hierarchy, not the Liminal architecture.
+During the demo runs, keep-out zones and stall/load stops were disabled; joint limits, a 1° per tick step limit, a 60 %
+torque cap and the e-stop stayed on. Sample sizes are small. The full write-up with every trial is in
+[ws4/pitch/README_submission.md](ws4/pitch/README_submission.md).
 
-</details>
+## How it works
 
-Strategy and key decisions: [PLAN.md](PLAN.md). Full design: [docs/architecture.md](docs/architecture.md).
-Who does what, and by when: [TASK.md](TASK.md). Rules for humans and coding agents:
-[AGENTS.md](AGENTS.md) (`CLAUDE.md` is an identical copy for Claude Code).
+[![Liminal architecture: a behavior-tree harness coordinates independent left and right FLUX 3 Action policies, with perception updating verified world-state predicates and safety gating every command](docs/assets/liminal-architecture.png)](docs/assets/liminal-architecture.png)
 
-## First single-arm validation
-
-The first SO101 validation includes **official LeRobot FLUX inference on the real
-robot** and **MuJoCo task-LoRA training/evaluation**. In five matched simulation
-scenes, the raw adapter achieved bilateral contact in 3/5 and lifts over 3.5 cm
-in 2/5; all models completed 0/5 placements. Physical inference and motor execution
-are recorded, with task success still unverified.
-
-- [Results, evidence and limitations](docs/validation/single-arm-v1.md)
-- [Run real-robot inference](docs/official-inference.md)
-- [Reproduce the MuJoCo experiment](docs/simulation-validation.md)
-- [Documentation index](docs/README.md)
-
-## Current policy architecture
-
-The initial plan was to fine-tune a unified bimanual XLeRobot embodiment (12-D actions). That plan
-was superseded by task LoRA fine-tuning of the existing 6-D SO-101 policy, with two independent FLUX
-instances, one per arm, coordinated by the real skill-runtime harness (behavior tree, checkpoint
-registry, perception and safety).
-
-The dual-arm profiles select `instances: per_arm`: separate model state and locks allow
-concurrent inference when the task permits. LoRA adapters are merged into validated
-skill bundles for the checkpoint registry. Holding uses a local controller; two
-policies do not imply both arms always move. See [the runtime guide](docs/showcase-runtime.md).
-
-The old 12-D configs and group tests remain compatibility scaffolds, with no validated
-bimanual checkpoint. XLeRobot remains the physical rig. `instances: shared` is an
-explicit memory-saving fallback, not the selected dual-arm configuration.
-
-## Workstreams
-
-| # | Workstream | Code | Brief |
-|---|-----------|------|-------|
-| WS1 | Single-arm FLUX baseline + 50–100 demos + task LoRA | `policy/`, `data/`, `scripts/record_demos.sh` | [01](docs/research/01_single_arm_baseline.md) |
-| WS2 | Bimanual: move obstacles away to reach a target | `bimanual/` | [02](docs/research/02_bimanual_obstacle.md) |
-| WS3 | Long-horizon decomposition + orchestration (BT / FSM / LLM / Gemini ER / VLM) | `orchestration/`, `perception/` | [03](docs/research/03_long_horizon_orchestration.md) |
-| WS4 | Simulation + per-arm LoRA evaluation (original embodiment plan superseded) | `sim/`, `configs/embodiment/` | [04](docs/research/04_xlerobot_sim.md) |
-| WS5 | Hardware setup, safety, operator UI / triggering | `hardware/`, `safety/`, `ui/` | [05](docs/research/05_hardware_ui.md) |
-
-## On the Haller (ws4 bridge)
-
-On the green Haller the tree runs through the ws4 stack: each skill becomes one ws4 step (kit keep-outs, start gate,
-held box arm, stall and load freezes, e-stop that freezes with torque on), FLUX runs on the remote policy server with
-one LoRA package per skill, and `ws4_haiku` perception reuses ws4's measured Haiku checks. Command, arm naming and
-what is verified: [ws4/HARNESS_BRIDGE.md](ws4/HARNESS_BRIDGE.md).
-
-## Quick start (no hardware needed)
-
-```bash
-uv sync --extra dev
-uv run pytest                            # all tests run on mock arms
-
-# Run the cooperative-holding demo on mock arms
-uv run liminal run configs/tasks/lid_hold_insert.yaml
-# Check every task file compiles
-uv run liminal validate configs/tasks/*.yaml
-# Goal -> task tree (template planner; --planner claude|gemini needs `.[llm]` + API key)
-uv run liminal plan "hold the lid and insert the block"
-# Bimanual obstacle planner (WS2)
-uv run python scripts/plan_obstacle.py --strategy hold_away
-```
-
-`pyproject.toml` declares direct dependencies and `uv.lock` pins the resolved
-environment. The committed `.python-version` selects Python 3.12. Use `uv lock
---check` in CI or before deployment to detect dependency changes that were not
-locked.
-
-## Qwen scene inspection
-
-The real VLM adapter is optional and loads its checkpoint lazily, once per process.
-Check the device in `configs/perception/qwen3_vl_4b.yaml`, then inspect one synchronized
-set of recorded views before enabling any robot motion:
-
-```bash
-uv sync --extra dev --extra vlm-qwen
-uv run liminal inspect --perception configs/perception/qwen3_vl_4b.yaml \
-  --image top=path/to/top.jpg \
-  --image left_wrist=path/to/left_wrist.jpg \
-  --image right_wrist=path/to/right_wrist.jpg
-```
-
-The shipped configuration uses bitsandbytes NF4 quantization with bfloat16
-computation. Set `quantization: none` to measure the unquantized BF16 baseline.
-
-The command prints schema-validated predicates plus load, preprocessing,
-time-to-first-token, total-latency, and GPU-memory measurements. Pass the same
-configuration file to `liminal run` using its `--perception` option.
-
-Before robot deployment, label synchronized camera views using the manifest format
-in `data/perception_eval/labels.example.yaml`, then run repeated offline evaluation:
-
-```bash
-uv run liminal evaluate-perception data/perception_eval/labels.yaml \
-  --perception configs/perception/qwen3_vl_4b.yaml \
-  --repeats 3
-```
-
-The JSON report retains raw model responses and parsed evidence, and summarizes
-accuracy, unknowns, false-positive transitions, repeat agreement, latency, and
-Qwen preprocessing/token-generation/GPU metrics per call. Treat any false-positive
-transition as a deployment blocker even if aggregate accuracy looks acceptable.
-
-Once the labeled evaluation passes, verify live camera capture and blackboard
-updates without connecting to either arm bus or issuing arm commands:
-
-```bash
-uv run liminal inspect-live \
-  --robot configs/robot/so101_dual.yaml \
-  --perception configs/perception/qwen3_vl_4b.yaml \
-  --samples 3
-```
-
-This command cannot determine whether another controller has left motor torque
-enabled, so verify that separately. It connects only the perception cameras and
-writes the captured frames, raw responses, parsed predicates, observation versions,
-and final blackboard state to `runs/`.
-
-## On real hardware
-
-The connected bimanual XLeRobot has an isolated setup and a local operator UI:
-
-```bash
-./scripts/setup_robot.sh
-./scripts/control_robot.sh           # http://127.0.0.1:8080; starts with torque OFF
-```
-
-Stop other robot controllers first. Support the arm before clicking **Engage**.
-Setup, device mapping, calibration, limits, E-stop behavior and the API are in
-[Robot control](docs/robot-control.md). This controller does not require Haller,
-ROS, Node.js, a GPU, or FLUX weights. Scripted and FLUX task backends still use the
-same safety supervisor; see the guide before running tasks on hardware.
-
-For Haller UI ownership and remote GPU inference, follow the
-[official LeRobot inference guide](docs/official-inference.md). It defaults to
-real-camera inference without motor commands; execution requires a verified rig
-profile and explicit UI engagement. Liminal supplies SSH transport and execution;
-LeRobot supplies `Flux3Policy` and its saved pre/postprocessors.
-
-Every run writes a JSONL event log under `runs/` (facts, node start/end, retries,
-WHILE violations). Use it to count success rates over trials.
-
-## Task files
-
-Planners (hand-written, LLM, the bimanual obstacle planner) all emit the same
-grammar, and one compiler validates it:
+**Behavior-tree harness** (`src/liminal/orchestration`). A task is a YAML behavior tree built from `sequence`,
+`parallel`, `fallback`, `while`/`until`, `retry`, `timeout` and `check` nodes. Each skill node names an arm, a text
+prompt and a `success` predicate. A skill counts as done only when that predicate holds in the world state, and a
+`while` node cancels its body as soon as the maintained condition breaks. Nodes claim the arms they use, so two skills
+can never command the same arm.
 
 ```yaml
 tree:
-  sequence:                                  # AFTER
+  sequence:
     - skill: {arm: left, name: open_lid, prompt: "Lift the lid open", success: lid_open}
-    - while:                                 # WHILE: left keeps holding...
+    - while:
         arm: left
-        maintain: lid_open                   # ...this must stay true, or the body is cancelled
-        until: object_inserted               # UNTIL
+        maintain: lid_open            # must stay true, or the body is cancelled
+        until: object_inserted
         do:
           skill: {arm: right, name: pick_place, prompt: "Place the block inside the open box",
                   success: object_inserted}
-    - parallel:
-        - {skill: {arm: left, name: release}}
-        - {skill: {arm: right, name: home}}
     - check: object_inserted
 ```
 
-Grammar reference: `src/liminal/orchestration/task_spec.py`. Examples: `configs/tasks/`.
+Task files are written by hand or generated by a planner (template, Claude or Gemini). Planner output is compiled and
+validated by the same grammar (`orchestration/task_spec.py`) before anything runs.
 
-## Repo layout
+**Per-arm FLUX skills** (`src/liminal/policy`). Each arm has its own FLUX 3 Action instance, observation history and
+inference lock. A skill registry maps each skill to a LoRA bundle, so changing skill means changing adapter, not model.
+Holding and releasing use a local position controller and skip inference.
+
+**Perception** (`src/liminal/perception`). Predicates such as `lid_open` are evaluated from camera frames: cheap colour
+and zone checks first, a VLM when needed (Claude on the Haller, Qwen3-VL-4B as a local option). Every run writes a
+JSONL event log of facts, node transitions, retries and violations under `runs/`.
+
+**Hybrid gate** (`src/liminal/policy/hybrid.py`). An optional Claude gate reviews each FLUX action chunk and chooses
+to execute it, edit it, replace it with a bounded end-effector target, or stop. Edits go through local IK and the
+safety supervisor. The gate is opt-in and refuses to move the robot until the kinematic mapping has been verified.
+
+**Haller stack** (`ws4/`). The FLUX skill pipeline, LoRA training, safety runner and Claude orchestrator used for the
+demo. The behavior-tree harness drives the Haller through this stack via `src/liminal/ws4_bridge`; see
+[ws4/HARNESS_BRIDGE.md](ws4/HARNESS_BRIDGE.md).
+
+## Quick start
+
+No robot or GPU required: tests and demos run on mock arms.
+
+```bash
+uv sync --extra dev
+uv run pytest
+
+uv run liminal validate configs/tasks/*.yaml               # compile every task file
+uv run liminal run configs/tasks/lid_hold_insert.yaml      # cooperative holding on mock arms
+uv run liminal plan "hold the lid and insert the block"    # goal -> task tree (template planner)
+```
+
+`--planner claude` or `--planner gemini` needs `--extra llm` and an API key. For real hardware:
+
+| Guide | Covers |
+|---|---|
+| [Robot control](docs/robot-control.md) | XLeRobot setup, calibration, limits, operator UI |
+| [Official inference](docs/official-inference.md) | FLUX inference on the real arm with a remote GPU |
+| [Skill runtime](docs/showcase-runtime.md) | per-arm LoRA bundles and the checkpoint registry |
+| [Haller bridge](ws4/HARNESS_BRIDGE.md) | running the behavior tree on the Haller |
+| [Research UI](docs/research-ui.md) | project page, live lab and MuJoCo digital twin |
+| [LoRA how-to](ws4/LORA_HOWTO.md) | training a skill adapter on your own demos |
+
+## Models and datasets
+
+All public on Hugging Face. Each model repo holds every checkpoint under `checkpoints/<run>/<step>/{raw,ema}`.
+
+| Skill | LoRA | Dataset (LeRobot v3, VR teleoperation) |
+|---|---|---|
+| Red pen | [haller-pen-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-pen-lora) (demo: `lora_pen84/005000/raw`) | [put the red pen in its slot](https://huggingface.co/datasets/Oskrt/haller_put_the_red_pen_in_its_slot_in_the_cardboard_box) |
+| Green pen | [haller-green-pen-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-green-pen-lora) | [put the green pen in the green slot](https://huggingface.co/datasets/Oskrt/haller_put_the_green_pen_in_the_green_slot) |
+| Yellow cutter | [haller-yellow-cutter-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-yellow-cutter-lora) | [put the yellow cutter in the yellow slot](https://huggingface.co/datasets/Oskrt/haller_put_the_yellow_cutter_in_the_yellow_slot) |
+| Open box | [haller-open-box-lora](https://huggingface.co/Oskrt/flux-3-action-so101-haller-open-box-lora) (not used in the demo) | [open the box](https://huggingface.co/datasets/Oskrt/haller_open_the_box) |
+| Take the red pen out | – | [take the red pen out](https://huggingface.co/datasets/Oskrt/haller_take_the_red_pen_out_of_its_slot) |
+
+## Repository layout
 
 ```
 src/liminal/
-  core/           types + interface contracts (Arm, Camera, SkillBackend, PredicateDetector)
-  orchestration/  behavior tree, task-file compiler, executor, planners (template / LLM)
-  perception/     world state + event log, colour-zone detector, VLM verifier
-  safety/         arm ownership, zones, joint limits, e-stop
-  policy/         FLUX 3 Action backend, scripted fallback, mock
-  hardware/       SO-101 via LeRobot (with position hold), cameras, mock arm
-  sim/            MuJoCo arms/cameras, embodiment action-space mapping (XLeRobot)
-  bimanual/       obstacle-clearing role assignment and plan generation
-  data/           demo-collection variation protocol
-  ui/             CLI and HTTP operator API
-configs/          robot, policy, embodiment, skill catalog, task trees
-scripts/          real/GPU inference, simulation collection/training/evaluation, hardware utilities
-experiments/      compact validation results, provenance and training recipes
-sim/single_arm/   versioned MuJoCo scene/model; external meshes
-integrations/     external Haller controller patch and installation guide
-docs/             guides, validation reports, architecture and research briefs
+  orchestration/  behavior tree, task-file compiler, executor, planners
+  perception/     world state, event log, colour/zone detectors, VLM verifier
+  policy/         FLUX 3 Action backend, hybrid gate, scripted fallback, mock
+  safety/         arm ownership, joint limits, zones, e-stop
+  hardware/       SO-101 via LeRobot, cameras, kinematics, mock arm
+  ws4_bridge/     runs the behavior tree on the Haller stack
+  sim/ bimanual/ ui/ core/
+configs/          robots, policies, skills, perception, task trees
+ws4/              Haller stack: FLUX skill pipeline, LoRA training, safety runner, orchestrator
+docs/             guides, validation reports, architecture
+tests/            run on mock arms, no GPU or network
 ```
 
-## Status and caveats
+Design and decisions: [docs/architecture.md](docs/architecture.md), [PLAN.md](PLAN.md). Contribution rules:
+[AGENTS.md](AGENTS.md).
 
-- The orchestration stack (BT, WHILE/UNTIL, safety, world state, planners, mock and
-  scripted backends) runs and is tested.
-- **Single-arm inference is implemented** through the dedicated official LeRobot
-  runner. The HF Space normalization profile is experimental on the physical rig.
-  The real skill runtime loads validated bundles through `LeRobotEngine` and routes
-  skills to independent per-arm backends. The showcase registry still has unstaged
-  opening/green-pen/boxcutter entries; a full learned dual-arm hardware run is unverified.
-  Planning configs retain `VERIFY` markers and are not commissioned inference profiles.
-- The simulation adapter improves grasp-related measures on a small test set;
-  completed placement, real-task success and bimanual transfer remain unverified.
-- LeRobot imports and CLI flags change between releases. They are isolated in
-  `hardware/so101.py` and `scripts/record_demos.sh`.
-- SO-101 holding is **position** holding, not torque control. Keep loads light.
+## Limitations
 
+- Sample sizes are small; the numbers above are hackathon results, not benchmarks.
+- The box step in the demo is a scripted replay, not a learned policy.
+- Learned skills running on both arms at the same time have not been verified on hardware.
+- SO-101 holding is position control, not torque control; keep loads light.
+- In simulation the LoRA improved grasping but completed 0/5 placements
+  ([validation report](docs/validation/single-arm-v1.md)).
 
-## Public project page and live digital twin lab
+## Team
 
-Explore the longer interactive project page at **https://javgilavi.github.io/liminal/**.
-The separate [full-screen lab](https://javgilavi.github.io/liminal/live.html) includes a
-rotatable recorded MuJoCo scene, scene/wrist views and explicit pairing to a local
-Haller companion. The project page distinguishes real red-pen insertion highlights,
-scripted teachers, simulation comparisons and older unlabeled hardware trials.
-
-```bash
-uv sync --extra research --extra dev
-./scripts/research_ui.sh
-# Open http://127.0.0.1:18003/pair on the robot-side machine.
-```
-
-Haller should be running at `http://127.0.0.1:8000`. Viewing both arms and cameras
-needs no policy profile. Pairing can happen before Haller starts; the companion
-reconnects automatically. To launch FLUX prompts, add `--profile PATH_TO_VERIFIED_PROFILE`
-for the current arm, checkpoint and GPU worker. The lab loads its live MuJoCo scene
-from that companion, and offers an **Open Haller** link after pairing.
-
-**Liminal** is the project; **Haller** is the hardware/controller. Live cameras and
-measured joints travel directly from the local companion to the browser. Trials
-use the existing guarded official runner and save locally under `runs/research/`.
-The viewer mirrors arm joints; object poses, contact and physical registration are
-not automatically tracked. [Setup, safety gates and implementation](docs/research-ui.md).
-The static site is deployed independently from the dedicated `gh-pages` branch.
+Oscar Devos, Javier Gil, Tomas Leggeat, Simone Utili, Stanisław Sufin.
